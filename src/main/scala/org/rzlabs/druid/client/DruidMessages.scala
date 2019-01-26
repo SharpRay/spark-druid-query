@@ -2,10 +2,17 @@ package org.rzlabs.druid.client
 
 import com.fasterxml.jackson.annotation._
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
-import org.joda.time.Interval
+import org.apache.arrow.vector.types.Types.MinorType
+import org.joda.time.{DateTime, Interval}
 import org.rzlabs.druid.{DruidQueryGranularity, NoneGranularity}
 
 // All messages are coming from Druid API responses.
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+case class SegmentTimeRange(minTime: DateTime, maxTime: DateTime)
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+case class CoordDataSourceInfo(segments: SegmentTimeRange)
 
 /**
  * Constructed by the response of `segmentMetadata` query.

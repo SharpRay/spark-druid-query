@@ -1,5 +1,6 @@
 package org.rzlabs.druid.metadata
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import org.apache.spark.sql.MyLogging
 import org.apache.spark.util.MyThreadUtils
 import org.joda.time.Interval
@@ -30,6 +31,7 @@ case class ShardSpec(`type`: String,
                      partitionNum: Option[Int],
                      Partitions: Option[Int])
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 case class DruidSegmentInfo(dataSource: String,
                             interval: String,
                             version: String,
@@ -43,6 +45,7 @@ case class DruidSegmentInfo(dataSource: String,
   def overlaps(in: Interval): Boolean = _interval.overlaps(in)
 }
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 case class DataSourceSegmentInfo(name: String,
                                  properties: Map[String, String],
                                  segments: List[DruidSegmentInfo]) {
@@ -53,6 +56,7 @@ case class DataSourceSegmentInfo(name: String,
 case class HistoricalServerAssignment(server: HistoricalServerInfo,
                                       segmentIntervals: List[(DruidSegmentInfo, Interval)])
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 case class HistoricalServerInfo(host: String,
                                 maxSize: Long,
                                `type`: String,
@@ -167,7 +171,7 @@ object DruidMetadataCache extends DruidMetadataCache with DruidRelationInfoCache
         val zkHost = druidRelationName.druidHost
         val cc = curatorConnection(zkHost, options)
         val coordinator = cc.getCoordinator
-        val
+        val druidClient = 
       }
     }
   }
