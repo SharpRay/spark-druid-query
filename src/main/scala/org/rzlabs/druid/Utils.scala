@@ -9,4 +9,8 @@ object Utils {
       case (t, in) => t + (in.getEndMillis - in.getStartMillis)
     }
   }
+
+  def filterSomes[A](a: List[Option[A]]): List[Option[A]] = {
+    a.filter { case Some(x) => true; case _ => false }
+  }
 }

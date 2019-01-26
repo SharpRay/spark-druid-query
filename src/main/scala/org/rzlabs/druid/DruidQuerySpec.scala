@@ -32,3 +32,15 @@ object SegmentIntervals {
     })
   }
 }
+
+case class RectangularBound(minCoords: Array[Double],
+                            maxCoords: Array[Double],
+                           `type`: String = "rectangular") {
+
+  def combine(other: RectangularBound): RectangularBound = {
+    RectangularBound(
+      minCoords.zip(other.minCoords).map(t => Math.max(t._1, t._2)),
+      maxCoords.zip(other.maxCoords).map(t => Math.min(t._1, t._2))
+    )
+  }
+}

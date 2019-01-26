@@ -2,7 +2,7 @@ package org.apache.spark.sql
 
 import org.apache.spark.internal.Logging
 
-class MyLogging extends Logging {
+trait MyLogging extends Logging {
 
   override def logInfo(msg: => String) = super.logInfo(msg)
 

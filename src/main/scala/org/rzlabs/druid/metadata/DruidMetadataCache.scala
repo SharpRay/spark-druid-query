@@ -1,10 +1,10 @@
 package org.rzlabs.druid.metadata
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import org.apache.spark.sql.MyLogging
+import org.apache.spark.sql.{DataFrame, MyLogging, SQLContext}
 import org.apache.spark.util.MyThreadUtils
 import org.joda.time.Interval
-import org.rzlabs.druid.client.CuratorConnection
+import org.rzlabs.druid.client.{CuratorConnection, DruidCoordinatorClient, DruidQueryServerClient}
 
 import scala.collection.mutable.{Map => MMap}
 import scala.concurrent.ExecutionContext
@@ -71,7 +71,7 @@ case class HistoricalServerInfo(host: String,
 case class DruidClusterInfo(host: String,
                             curatorConnection: CuratorConnection,
                             coordinatorStatus: ServerStatus,
-                            druidDataSources: Map[String, (DataSourceSegmentInfo, DruidDataSource)],  // dataSource ->
+                            druidDataSources: MMap[String, (DataSourceSegmentInfo, DruidDataSource)],  // dataSource ->
                             histServers: List[HistoricalServerInfo]) {
 
   def historicalServers(druidRelationName: DruidRelationName,
@@ -143,7 +143,29 @@ trait DruidRelationInfoCache {
 
   self: DruidMetadataCache =>
 
+  def druidRelation(sqlContext: SQLContext,
+                    sourceDFName: String,
+                    sourceDF: DataFrame,
+                    dsName: String,
+                    timeDimensionCol: String,
+                    druidHost: String,
+                    columnMapping: Map[String, String],
+                    columnInfos: List[DruidRelationColumnInfo],
+                    options: DruidRelationOptions): DruidRelationInfo = {
 
+    val fullName = DruidRelationName(sourceDFName, druidHost, dsName)
+
+    val druidDataSource: DruidDataSource = getDataSourceInfo(fullName, options)._2
+
+    val sourceToDruidMapping =
+      MappingBuilder.buildMapping(sqlContext, sourceDFName, columnMapping,
+        columnInfos, timeDimensionCol, druidDataSource)
+
+    val druidRelationInfo = DruidRelationInfo(fullName, sourceDFName,
+      timeDimensionCol, sourceToDruidMapping, options)
+
+    druidRelationInfo
+  }
 }
 
 object DruidMetadataCache extends DruidMetadataCache with DruidRelationInfoCache with MyLogging {
@@ -171,9 +193,57 @@ object DruidMetadataCache extends DruidMetadataCache with DruidRelationInfoCache
         val zkHost = druidRelationName.druidHost
         val cc = curatorConnection(zkHost, options)
         val coordinator = cc.getCoordinator
-        val druidClient = 
+        val coordClient = new DruidCoordinatorClient(coordinator)
+        val serverStatus = coordClient.serverStatus
+        val historicalServersInfo: List[HistoricalServerInfo] =
+          coordClient.serversInfo.filter(_.`type` == "historical")
+        val druidClusterInfo = new DruidClusterInfo(zkHost, cc, serverStatus,
+          MMap[String, DruidDataSourceInfo](), historicalServersInfo)
+        cache(druidClusterInfo.host) = druidClusterInfo
+        log.info(s"loading druid cluster info for ${druidRelationName}")
+        druidClusterInfo
       }
     }
+  }
+
+  def getDataSourceInfo(druidRelationName: DruidRelationName,
+                        options: DruidRelationOptions): DruidDataSourceInfo = {
+    val druidClusterInfo = getDruidClusterInfo(druidRelationName, options)
+    druidClusterInfo.synchronized {
+      if (druidClusterInfo.druidDataSources.contains(druidRelationName.druidDataSource)) {
+        druidClusterInfo.druidDataSources(druidRelationName.druidDataSource)
+      } else {
+        val coordClient =
+          new DruidCoordinatorClient(druidClusterInfo.curatorConnection.getCoordinator)
+        val dataSourceInfo: DataSourceSegmentInfo =
+          coordClient.dataSourceInfo(druidRelationName.druidDataSource)
+        val brokerClient =
+          new DruidQueryServerClient(druidClusterInfo.curatorConnection.getBroker, false)
+        var druidDataSource: DruidDataSource = brokerClient.metadata(druidRelationName.druidDataSource,
+          options.loadMetadataFromAllSegments, druidClusterInfo.coordinatorStatus.version)
+        druidDataSource = druidDataSource.copy(druidVersion = druidClusterInfo.coordinatorStatus.version)
+        val druidDataSourceInfo: DruidDataSourceInfo = (dataSourceInfo, druidDataSource)
+        val m = druidClusterInfo.druidDataSources
+        m(druidDataSourceInfo._1.name) = druidDataSourceInfo
+        log.info(s"loading druid datasource info for ${druidRelationName}")
+        druidDataSourceInfo
+
+      }
+    }
+  }
+
+  def assignHistoricalServers(druidRelationName: DruidRelationName,
+                              options: DruidRelationOptions,
+                              intervals: List[Interval]): List[HistoricalServerAssignment] = {
+    val druidClusterInfo = cache.synchronized {
+      getDataSourceInfo(druidRelationName, options)
+      getDruidClusterInfo(druidRelationName, options)
+    }
+    druidClusterInfo.historicalServers(druidRelationName, intervals)
+  }
+
+  def register(druidRelationName: DruidRelationName, options: DruidRelationOptions) = {
+    getDataSourceInfo(druidRelationName, options)
   }
 
   def clearCache: Unit = cache.synchronized(cache.clear())
